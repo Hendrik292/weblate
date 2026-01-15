@@ -143,6 +143,7 @@ if TYPE_CHECKING:
     from weblate.auth.models import AuthenticatedHttpRequest, User
     from weblate.checks.base import BaseCheck
     from weblate.formats.base import TranslationFormat
+    from weblate.trans.file_format_params import FileFormatParams
     from weblate.trans.models.unit import UnitAttributesDict
     from weblate.vcs.base import Repository
 
@@ -550,11 +551,14 @@ class Component(
         blank=False,
     )
 
-    file_format_params = models.JSONField(
-        verbose_name=gettext_lazy("File format parameters"),
-        default=dict,
-        blank=True,
-        validators=[validate_file_format_parameters],
+    file_format_params = cast(
+        "FileFormatParams",
+        models.JSONField(
+            verbose_name=gettext_lazy("File format parameters"),
+            default=dict,
+            blank=True,
+            validators=[validate_file_format_parameters],
+        ),
     )
 
     locked = models.BooleanField(
