@@ -3,9 +3,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 document.addEventListener("DOMContentLoaded", () => {
+  // Deduplicate "Accept all" buttons - keep only the first one for each user
+  const seenUsernames = new Set();
   const buttons = document.querySelectorAll(".aa-accept-all-btn");
 
   buttons.forEach((btn) => {
+    const username = btn.dataset.username;
+    if (seenUsernames.has(username)) {
+      // Remove duplicate button
+      btn.remove();
+    } else {
+      seenUsernames.add(username);
+    }
+  });
+
+  // Re-query buttons after deduplication
+  const uniqueButtons = document.querySelectorAll(".aa-accept-all-btn");
+
+  uniqueButtons.forEach((btn) => {
     btn.addEventListener("click", async function (e) {
       e.preventDefault();
 
@@ -26,6 +41,9 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       const csrfToken = csrfTokenElement.value;
+
+      // Store original button content for restoration on error
+      const originalContent = btn.innerHTML;
 
       // Disable all buttons
       const allBtns = document.querySelectorAll(".aa-accept-all-btn");
@@ -72,7 +90,7 @@ document.addEventListener("DOMContentLoaded", () => {
             errorData.error ||
             response.statusText ||
             interpolate(gettext("Server error (%s)"), [response.status]);
-          showError(btn, errorMessage, srStatus);
+          showError(btn, errorMessage, srStatus, originalContent);
 
           enableAllButtons(allBtns);
           return;
@@ -82,7 +100,7 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
           data = await response.json();
         } catch (_parseError) {
-          showError(btn, gettext("Invalid server response"), srStatus);
+          showError(btn, gettext("Invalid server response"), srStatus, originalContent);
           enableAllButtons(allBtns);
           return;
         }
@@ -130,20 +148,25 @@ document.addEventListener("DOMContentLoaded", () => {
           // Reload page after 2 seconds
           setTimeout(() => location.reload(), 2000);
         } else {
-          showError(btn, data.error || gettext("Unknown error"), srStatus);
+          showError(btn, data.error || gettext("Unknown error"), srStatus, originalContent);
           enableAllButtons(allBtns);
         }
       } catch (err) {
         console.error("Bulk accept error:", err);
-        showError(btn, err.message || gettext("Network error"), srStatus);
+        showError(btn, err.message || gettext("Network error"), srStatus, originalContent);
         enableAllButtons(allBtns);
       }
     });
   });
 
   // Helper function to show errors
-  function showError(button, message, statusElement) {
-    button.textContent = interpolate(gettext("Error: %s"), [message]);
+  function showError(button, message, statusElement, originalContent) {
+    // Restore original button content (icon) instead of just showing error text
+    if (originalContent) {
+      button.innerHTML = originalContent;
+    }
+    // Add error message as title attribute so users can see it on hover
+    button.title = interpolate(gettext("Error: %s"), [message]);
     button.classList.add("aa-error");
     button.setAttribute("aria-busy", "false");
 
