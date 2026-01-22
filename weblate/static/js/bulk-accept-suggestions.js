@@ -20,9 +20,17 @@ document.addEventListener("DOMContentLoaded", () => {
   // Re-query buttons after deduplication
   const uniqueButtons = document.querySelectorAll(".aa-accept-all-btn");
 
+  // Track if any operation is in progress to prevent duplicate requests
+  let operationInProgress = false;
+
   uniqueButtons.forEach((btn) => {
     btn.addEventListener("click", async function (e) {
       e.preventDefault();
+
+      // Prevent duplicate requests
+      if (operationInProgress) {
+        return;
+      }
 
       const username = this.dataset.username;
       const url = this.dataset.translationUrl;
@@ -37,6 +45,7 @@ document.addEventListener("DOMContentLoaded", () => {
           btn,
           gettext("Security token missing. Please reload the page."),
           null,
+          null,
         );
         return;
       }
@@ -45,11 +54,15 @@ document.addEventListener("DOMContentLoaded", () => {
       // Store original button content for restoration on error
       const originalContent = btn.innerHTML;
 
+      // Mark operation in progress
+      operationInProgress = true;
+
       // Disable all buttons
       const allBtns = document.querySelectorAll(".aa-accept-all-btn");
       for (const b of allBtns) {
         b.disabled = true;
         b.setAttribute("aria-busy", "true");
+        b.setAttribute("aria-disabled", "true");
       }
       // Create screen reader status element
       const srStatus = document.createElement("div");
@@ -92,6 +105,7 @@ document.addEventListener("DOMContentLoaded", () => {
             interpolate(gettext("Server error (%s)"), [response.status]);
           showError(btn, errorMessage, srStatus, originalContent);
 
+          operationInProgress = false;
           enableAllButtons(allBtns);
           return;
         }
@@ -100,7 +114,13 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
           data = await response.json();
         } catch (_parseError) {
-          showError(btn, gettext("Invalid server response"), srStatus, originalContent);
+          showError(
+            btn,
+            gettext("Invalid server response"),
+            srStatus,
+            originalContent,
+          );
+          operationInProgress = false;
           enableAllButtons(allBtns);
           return;
         }
@@ -135,8 +155,9 @@ document.addEventListener("DOMContentLoaded", () => {
           statusDiv.appendChild(doneDiv);
 
           btn.appendChild(statusDiv);
-          // Announce to screen readers
-          srStatus.textContent = interpolate(
+
+          // Announce to screen readers and reload
+          const reloadMessage = interpolate(
             ngettext(
               "Successfully accepted %s suggestion. Page will reload in 2 seconds.",
               "Successfully accepted %s suggestions. Page will reload in 2 seconds.",
@@ -144,16 +165,28 @@ document.addEventListener("DOMContentLoaded", () => {
             ),
             [data.accepted],
           );
+          srStatus.textContent = reloadMessage;
 
           // Reload page after 2 seconds
           setTimeout(() => location.reload(), 2000);
         } else {
-          showError(btn, data.error || gettext("Unknown error"), srStatus, originalContent);
+          showError(
+            btn,
+            data.error || gettext("Unknown error"),
+            srStatus,
+            originalContent,
+          );
+          operationInProgress = false;
           enableAllButtons(allBtns);
         }
       } catch (err) {
         console.error("Bulk accept error:", err);
-        showError(btn, err.message || gettext("Network error"), srStatus, originalContent);
+        const errorMessage =
+          err && err.message
+            ? err.message
+            : gettext("Network error. Please check your connection.");
+        showError(btn, errorMessage, srStatus, originalContent);
+        operationInProgress = false;
         enableAllButtons(allBtns);
       }
     });
@@ -161,19 +194,37 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Helper function to show errors
   function showError(button, message, statusElement, originalContent) {
-    // Restore original button content (icon) instead of just showing error text
+    // Restore original button content (icon) if available
     if (originalContent) {
       button.innerHTML = originalContent;
     }
-    // Add error message as title attribute so users can see it on hover
+
+    // Create visible error message element
+    const errorDiv = document.createElement("div");
+    errorDiv.className = "aa-error-message alert alert-danger";
+    errorDiv.setAttribute("role", "alert");
+    errorDiv.textContent = interpolate(gettext("Error: %s"), [message]);
+
+    // Insert error message after the button
+    button.parentElement.insertBefore(errorDiv, button.nextSibling);
+
+    // Also set title attribute for additional context
     button.title = interpolate(gettext("Error: %s"), [message]);
     button.classList.add("aa-error");
     button.setAttribute("aria-busy", "false");
+    button.setAttribute("aria-disabled", "false");
 
     // Announce error to screen readers
     if (statusElement) {
       statusElement.textContent = interpolate(gettext("Error: %s"), [message]);
     }
+
+    // Remove error message after 10 seconds
+    setTimeout(() => {
+      if (errorDiv.parentElement) {
+        errorDiv.remove();
+      }
+    }, 10000);
   }
 
   // Helper function to re-enable all buttons
@@ -181,6 +232,7 @@ document.addEventListener("DOMContentLoaded", () => {
     for (const btn of buttons) {
       btn.disabled = false;
       btn.setAttribute("aria-busy", "false");
+      btn.setAttribute("aria-disabled", "false");
     }
   }
 });
