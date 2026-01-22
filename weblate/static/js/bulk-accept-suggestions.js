@@ -182,9 +182,7 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch (err) {
         console.error("Bulk accept error:", err);
         const errorMessage =
-          err && err.message
-            ? err.message
-            : gettext("Network error. Please check your connection.");
+          err?.message || gettext("Network error. Please check your connection.");
         showError(btn, errorMessage, srStatus, originalContent);
         operationInProgress = false;
         enableAllButtons(allBtns);

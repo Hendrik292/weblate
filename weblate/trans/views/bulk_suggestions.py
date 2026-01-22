@@ -120,7 +120,6 @@ def bulk_accept_user_suggestions(
                     "Failed to accept suggestion %s: %s",
                     suggestion.pk,
                     error,
-                    exc_info=True,
                 )
                 failed_count += 1
 
