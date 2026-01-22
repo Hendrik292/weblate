@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from django import forms
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.http import JsonResponse
 from django.utils.translation import gettext, ngettext
 from django.views.decorators.http import require_POST
@@ -66,11 +67,26 @@ def bulk_accept_user_suggestions(
     target_user = form.cleaned_data["username"]
 
     # Get all suggestions from this user for this translation
+    # Use select_related to optimize queries
     suggestions = Suggestion.objects.filter(
         unit__translation=translation, user=target_user
-    ).select_related("unit")
+    ).select_related("unit", "unit__translation")
 
     total = suggestions.count()
+
+    # Handle edge case: no suggestions to accept
+    if total == 0:
+        return JsonResponse(
+            {
+                "success": True,
+                "accepted": 0,
+                "failed": 0,
+                "total": 0,
+                "message": gettext(
+                    "No suggestions found from user {user}."
+                ).format(user=target_user.username),
+            }
+        )
 
     # Rate limiting - prevent abuse
     if total > 1000:
@@ -86,24 +102,26 @@ def bulk_accept_user_suggestions(
     accepted_count = 0
     failed_count = 0
 
-    # Accept each suggestion
-    for suggestion in suggestions:
-        # Check permission for each unit
-        if not request.user.has_perm("suggestion.accept", suggestion.unit):
-            failed_count += 1
-            continue
+    # Use atomic transaction to ensure consistency
+    with transaction.atomic():
+        # Accept each suggestion
+        for suggestion in suggestions:
+            # Check permission for each unit
+            if not request.user.has_perm("suggestion.accept", suggestion.unit):
+                failed_count += 1
+                continue
 
-        # Accept the suggestion
-        try:
-            suggestion.accept(request, state=STATE_TRANSLATED)
-            accepted_count += 1
-        except Exception as e:
-            logger.warning(
-                "Failed to accept suggestion %s: %s",
-                suggestion.pk,
-                e,
-            )
-            failed_count += 1
+            # Accept the suggestion
+            try:
+                suggestion.accept(request, state=STATE_TRANSLATED)
+                accepted_count += 1
+            except Exception as error:
+                logger.error(
+                    "Failed to accept suggestion %s: %s",
+                    suggestion.pk,
+                    error,
+                )
+                failed_count += 1
 
     # Build appropriate message based on results
     if failed_count == 0:
